@@ -33,13 +33,11 @@ def main():
         params = json.load(open(args.parameters_file))
     else:
         params = {}
-    print(params)
 
     file_name = os.path.splitext(os.path.basename(args.input_file))[0]
     debug_level = 'full' if args.debug else 'normal'
     logger = pdnl_sana.logging.Logger(debug_level, os.path.splitext(args.output_file)[0]+'.pkl')
-    print(debug_level)
-    
+
     if args.staining_code == 'H-DAB':
         processor = pdnl_sana.process.HDABProcessor(
             logger, frame, main_mask=mask, 
@@ -55,8 +53,9 @@ def main():
         morphology_filters=[pdnl_sana.filter.MorphologyFilter(**filter_params) for filter_params in params.get('morphology_filters', [])],
     )['positive_dab']
 
-    plt.show()
-
+    if args.debug:
+        plt.show()
+        
     out.save(args.output_file)
     
 if __name__ == "__main__":
