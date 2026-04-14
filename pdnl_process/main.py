@@ -17,7 +17,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input_file', help="path to image file to process", required=True)
-    parser.add_argument('-o', '--output_file', help="path to write outputs to", required=True)
+    parser.add_argument('-o', '--output_path', help="path to write outputs to", required=True)
     parser.add_argument('-m', '--mask_file', help="path to mask file to apply to the image", default=None)
     parser.add_argument('-s', '--staining_code', help="stain protocol used to stain the input image", default='H-DAB')
     parser.add_argument('-p', '--parameters_file', help=".json file containing processing parameters", default=None)
@@ -36,7 +36,7 @@ def main():
 
     file_name = os.path.splitext(os.path.basename(args.input_file))[0]
     debug_level = 'full' if args.debug else 'normal'
-    logger = pdnl_sana.logging.Logger(debug_level, os.path.splitext(args.output_file)[0]+'.pkl')
+    logger = pdnl_sana.logging.Logger(debug_level, os.path.join(args.output_path, 'log.pkl'))
 
     if args.staining_code == 'H-DAB':
         processor = pdnl_sana.process.HDABProcessor(
@@ -46,17 +46,20 @@ def main():
             stain_vector=params.get('stain_vector', None)
         )
 
-    out = processor.run(
+    res = processor.run(
         triangular_strictness=params.get('triangular_strictness', 0.0),
         minimum_threshold=params.get('minimum_threshold', 0),
         od_threshold=params.get('od_threshold', None),
         morphology_filters=[pdnl_sana.filter.MorphologyFilter(**filter_params) for filter_params in params.get('morphology_filters', [])],
-    )['positive_dab']
+    )
 
     if args.debug:
         plt.show()
         
-    out.save(args.output_file)
+
+    res['stain'].save(os.path.join(args.output_path, 'stain.npy'))
+    res['positive_stain'].save(os.path.join(args.output_path, 'pos.png'))
+    logger.write_data()
     
 if __name__ == "__main__":
     main()
