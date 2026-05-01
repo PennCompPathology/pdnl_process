@@ -30,11 +30,16 @@ def main():
     else:
         params = {}
 
+    os.makedirs(args.output_path, exist_ok=True)
+    
     # preprocess the chunks
     # TODO: move all pdnl_sana.process code into here, then other scripts import these functions
     print('Preprocessing chunks...', flush=True)
-    histogram = np.zeros((256,1), dtype=int)
+    histogram = None
     for d in tqdm(os.listdir(args.input_path)):
+        if not os.path.isdir(os.path.join(args.input_path, d)):
+            continue
+        
         i, j = list(map(int, d.split('_')))
 
         in_d = os.path.join(args.input_path, f'{i}_{j}')
@@ -58,16 +63,22 @@ def main():
                 stain_vector=params.get('stain_vector', None)
             )
             hist = processor.dab.get_histogram(mask=processor.main_mask)
-            histogram = histogram + hist
+            if histogram is None:
+                histogram = hist
+            else:
+                histogram = histogram + hist
             processor.dab.save(os.path.join(out_d, 'stain.npy'))
 
     # calculate the threshold
-    triangular_strictness = params.get('triangular_strictness', 0.0)
-    threshold = pdnl_sana.threshold.triangular_method(
-        hist,
-        strictness=triangular_strictness,
-        debug=True
-    )
+    if not histogram is None:
+        triangular_strictness = params.get('triangular_strictness', 0.0)
+        threshold = pdnl_sana.threshold.triangular_method(
+            histogram,
+            strictness=triangular_strictness,
+            debug=True
+        )
+    else:
+        threshold = 0
 
     minimum_threshold = params.get('minimum_threshold', 0)
     if threshold < minimum_threshold:
@@ -76,6 +87,9 @@ def main():
     # apply the threshold to the pre-processed chunks
     print('Processing chunks...', flush=True)
     for d in tqdm(os.listdir(args.output_path)):
+        if not os.path.isdir(os.path.join(args.input_path, d)):
+            continue
+        
         i, j = list(map(int, d.split('_')))
 
         in_d = os.path.join(args.input_path, f'{i}_{j}')
