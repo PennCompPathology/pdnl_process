@@ -62,12 +62,19 @@ def main():
                 normalize_background=params.get('normalize_background', False),
                 stain_vector=params.get('stain_vector', None)
             )
-            hist = processor.dab.get_histogram(mask=processor.main_mask)
-            if histogram is None:
-                histogram = hist
-            else:
-                histogram = histogram + hist
-            processor.dab.save(os.path.join(out_d, 'stain.npy'))
+        if args.staining_code == 'CV-DAB':
+            processor = pdnl_sana.process.CVDABProcessor(
+                logger, frame, main_mask=mask,
+                apply_smoothing=params.get('apply_smoothing', False),
+                normalize_background=params.get('normalize_background', False),
+                stain_vector=params.get('stain_vector', None)
+            )                
+        hist = processor.dab.get_histogram(mask=processor.main_mask)
+        if histogram is None:
+            histogram = hist
+        else:
+            histogram = histogram + hist
+        processor.dab.save(os.path.join(out_d, 'stain.npy'))
 
     # calculate the threshold
     if not histogram is None:
