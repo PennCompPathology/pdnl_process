@@ -23,6 +23,7 @@ def main():
     parser.add_argument('-o', '--output_path', help="path to write outputs to", required=True)
     parser.add_argument('-s', '--staining_code', help="stain protocol used to stain the input image", default='H-DAB')
     parser.add_argument('-p', '--parameters_file', help=".json file containing processing parameters", default=None)
+    parser.add_argument('--debug_level', help="outputs extra files", default='normal')
     args = parser.parse_args()
 
     if args.parameters_file:
@@ -31,79 +32,51 @@ def main():
         params = {}
 
     os.makedirs(args.output_path, exist_ok=True)
-    
-    # preprocess the chunks
-    # TODO: move all pdnl_sana.process code into here, then other scripts import these functions
-    print('Preprocessing chunks...', flush=True)
-    histogram = None
-    for d in tqdm(os.listdir(args.input_path)):
-        if not os.path.isdir(os.path.join(args.input_path, d)):
-            continue
-        
-        i, j = list(map(int, d.split('_')))
 
-        in_d = os.path.join(args.input_path, f'{i}_{j}')
-        out_d = os.path.join(args.output_path, f'{i}_{j}')
+    # get the background image
+    # TODO: test how big the concatenated frame will be, and move to big roi mode if too big
+    rois = pdnl_sana.slide.concatenate_chunks(args.input_path)
+    for roi_name in rois:
+        frame, mask, frame_loc = rois[roi_name]    
+
+        # TODO: move all pdnl_sana.process code into here, then other scripts import these functions
+        out_d = os.path.join(args.output_path, roi_name)
         os.makedirs(out_d, exist_ok=True)
+        logger = pdnl_sana.logging.Logger(args.debug_level, os.path.join(out_d, 'log.pkl'))
 
-        logger = pdnl_sana.logging.Logger('normal', os.path.join(in_d, 'log.pkl'))
-        level = logger.data['level']
-        mpp = logger.data['mpp']
-        ds = logger.data['ds']
-        converter = pdnl_sana.geo.Converter(mpp, ds)
-        frame = pdnl_sana.image.Frame(os.path.join(in_d, 'frame.png'), level=level, converter=converter)
-        mask = pdnl_sana.image.Frame(os.path.join(in_d, 'mask.png'), level=level, converter=converter)        
-
-        
+        # TODO: shouldn't be omitting the mask here, but leaving it here so all data is generated in the same way for now.
+        #       this was a fix for the background code, but that code is solved now
         if args.staining_code == 'H-DAB':
             processor = pdnl_sana.process.HDABProcessor(
-                logger, frame, main_mask=mask, 
+                logger, frame, 
+                #main_mask=mask, 
                 apply_smoothing=params.get('apply_smoothing', False),
                 normalize_background=params.get('normalize_background', False),
-                stain_vector=params.get('stain_vector', None)
+                stain_vector=params.get('stain_vector', None),
+                radius=200, overlap=0.5,
             )
         if args.staining_code == 'CV-DAB':
             processor = pdnl_sana.process.CVDABProcessor(
-                logger, frame, main_mask=mask,
+                logger, frame, 
+                #main_mask=mask,
                 apply_smoothing=params.get('apply_smoothing', False),
                 normalize_background=params.get('normalize_background', False),
                 stain_vector=params.get('stain_vector', None)
             )                
         hist = processor.dab.get_histogram(mask=processor.main_mask)
-        if histogram is None:
-            histogram = hist
-        else:
-            histogram = histogram + hist
-        processor.dab.save(os.path.join(out_d, 'stain.npy'))
+        stain = processor.dab.copy()
+        stain.save(os.path.join(out_d, 'stain.npy'))
 
-    # calculate the threshold
-    if not histogram is None:
+        # calculate the threshold
         triangular_strictness = params.get('triangular_strictness', 0.0)
         threshold = pdnl_sana.threshold.triangular_method(
-            histogram,
+            hist,
             strictness=triangular_strictness,
-            debug=True
         )
-    else:
-        threshold = 0
 
-    minimum_threshold = params.get('minimum_threshold', 0)
-    if threshold < minimum_threshold:
-        threshold = minimum_threshold
-
-    # apply the threshold to the pre-processed chunks
-    print('Processing chunks...', flush=True)
-    for d in tqdm(os.listdir(args.output_path)):
-        if not os.path.isdir(os.path.join(args.input_path, d)):
-            continue
-        
-        i, j = list(map(int, d.split('_')))
-
-        in_d = os.path.join(args.input_path, f'{i}_{j}')
-        out_d = os.path.join(args.output_path, f'{i}_{j}')
-
-        mask = pdnl_sana.image.Frame(os.path.join(in_d, 'mask.png'))
-        stain = pdnl_sana.image.Frame(os.path.join(out_d, 'stain.npy'))
+        minimum_threshold = params.get('minimum_threshold', 0)
+        if threshold < minimum_threshold:
+            threshold = minimum_threshold
 
         stain.mask(mask)
         stain.threshold(threshold)
@@ -112,12 +85,18 @@ def main():
         for filt in morphology_filters:
             stain.apply_morphology_filter(filt)
 
+        if args.debug_level in ['debug', 'full']:
+            frame.save(os.path.join(out_d, 'frame.png'))   
+
+        if args.debug_level == 'full':
+            plt.show()     
         stain.save(os.path.join(out_d, 'pos.png'))
-        logger = pdnl_sana.logging.Logger('normal', os.path.join(out_d, 'log.pkl'))
+        mask.save(os.path.join(out_d, 'mask.png'))
         logger.data['triangular_strictness'] = triangular_strictness
         logger.data['minimum_threshold'] = minimum_threshold
         logger.data['morphology_filter'] = morphology_filters
         logger.data['threshold'] = threshold
+        logger.data['frame_loc'] = frame_loc
         logger.write_data()
     
 if __name__ == "__main__":
